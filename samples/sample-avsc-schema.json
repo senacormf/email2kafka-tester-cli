@@ -1,0 +1,167 @@
+{
+  "type": "record",
+  "name": "GenericProcessingResult",
+  "doc": "An anonymized AVSC schema for demonstration and public testing.",
+  "fields": [
+    {
+      "name": "event_id",
+      "doc": "Unique identifier for a processing event.",
+      "type": {
+        "type": "string",
+        "logicalType": "uuid"
+      }
+    },
+    {
+      "name": "record_id",
+      "doc": "Stable record identifier for correlation.",
+      "type": "string"
+    },
+    {
+      "name": "document_type",
+      "doc": "Type label for the processed document.",
+      "type": "string"
+    },
+    {
+      "name": "channel_type",
+      "doc": "Incoming channel classification.",
+      "type": {
+        "type": "enum",
+        "name": "ChannelTypeEnum",
+        "symbols": ["EMAIL", "MAIL", "FAX"]
+      }
+    },
+    {
+      "name": "sender_address",
+      "doc": "Sender address when channel is EMAIL.",
+      "type": "string"
+    },
+    {
+      "name": "message_subject",
+      "doc": "Message subject when channel is EMAIL.",
+      "type": "string"
+    },
+    {
+      "name": "received_at",
+      "doc": "Ingress timestamp string.",
+      "type": "string"
+    },
+    {
+      "name": "business_area",
+      "doc": "Business area assigned by upstream routing.",
+      "type": "string"
+    },
+    {
+      "name": "reference_number",
+      "doc": "Business reference number.",
+      "type": "string"
+    },
+    {
+      "name": "model_output",
+      "doc": "Machine generated extraction output.",
+      "type": {
+        "type": "record",
+        "name": "ModelOutput",
+        "fields": [
+          {
+            "name": "classifications",
+            "doc": "Detected categories with confidence.",
+            "type": {
+              "type": "array",
+              "items": {
+                "type": "record",
+                "name": "ClassificationItem",
+                "fields": [
+                  {
+                    "name": "value",
+                    "type": "string"
+                  },
+                  {
+                    "name": "score",
+                    "doc": "Confidence score between 0 and 1.",
+                    "type": "double"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "name": "attributes",
+            "doc": "Extracted structured attributes.",
+            "type": {
+              "type": "record",
+              "name": "ModelAttributes",
+              "fields": [
+                {
+                  "name": "reason",
+                  "doc": "Primary reason text.",
+                  "default": null,
+                  "type": [
+                    "null",
+                    {
+                      "type": "record",
+                      "name": "ReasonAttribute",
+                      "fields": [
+                        {
+                          "name": "value",
+                          "type": "string"
+                        },
+                        {
+                          "name": "score",
+                          "type": "double"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "name": "due_date",
+                  "doc": "Date or date-like text extracted from content.",
+                  "default": null,
+                  "type": [
+                    "null",
+                    {
+                      "type": "record",
+                      "name": "DueDateAttribute",
+                      "fields": [
+                        {
+                          "name": "value",
+                          "type": "string"
+                        },
+                        {
+                          "name": "score",
+                          "type": "double"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "name": "follow_up_needed",
+                  "doc": "Flag indicating if manual follow-up is required.",
+                  "default": null,
+                  "type": [
+                    "null",
+                    {
+                      "type": "record",
+                      "name": "FollowUpNeededAttribute",
+                      "fields": [
+                        {
+                          "name": "value",
+                          "type": "boolean"
+                        },
+                        {
+                          "name": "score",
+                          "type": "double"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

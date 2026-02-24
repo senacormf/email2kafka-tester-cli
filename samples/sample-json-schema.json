@@ -1,0 +1,143 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "Generic Processing Result Schema",
+  "description": "An anonymized schema for demonstration and public testing.",
+  "required": [
+    "event_id",
+    "record_id",
+    "document_type",
+    "channel_type",
+    "sender_address",
+    "message_subject",
+    "received_at",
+    "business_area",
+    "reference_number",
+    "model_output"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for a processing event."
+    },
+    "record_id": {
+      "type": "string",
+      "description": "Stable record identifier for correlation."
+    },
+    "document_type": {
+      "type": "string",
+      "description": "Type label for the processed document."
+    },
+    "channel_type": {
+      "type": "string",
+      "description": "Incoming channel classification.",
+      "enum": ["EMAIL", "MAIL", "FAX"]
+    },
+    "sender_address": {
+      "type": "string",
+      "description": "Sender address when channel is EMAIL."
+    },
+    "message_subject": {
+      "type": "string",
+      "description": "Message subject when channel is EMAIL."
+    },
+    "received_at": {
+      "type": "string",
+      "description": "Ingress timestamp string."
+    },
+    "business_area": {
+      "type": "string",
+      "description": "Business area assigned by upstream routing."
+    },
+    "reference_number": {
+      "type": "string",
+      "description": "Business reference number."
+    },
+    "model_output": {
+      "type": "object",
+      "description": "Machine generated extraction output.",
+      "required": ["classifications", "attributes"],
+      "properties": {
+        "classifications": {
+          "type": "array",
+          "description": "Detected categories with confidence.",
+          "items": {
+            "type": "object",
+            "required": ["value", "score"],
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "score": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Confidence score between 0 and 1."
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1
+        },
+        "attributes": {
+          "type": "object",
+          "description": "Extracted structured attributes.",
+          "properties": {
+            "reason": {
+              "type": "object",
+              "description": "Primary reason text.",
+              "required": ["value", "score"],
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "score": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "additionalProperties": false
+            },
+            "due_date": {
+              "type": "object",
+              "description": "Date or date-like text extracted from content.",
+              "required": ["value", "score"],
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "score": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "additionalProperties": false
+            },
+            "follow_up_needed": {
+              "type": "object",
+              "description": "Flag indicating if manual follow-up is required.",
+              "required": ["value", "score"],
+              "properties": {
+                "value": {
+                  "type": "boolean"
+                },
+                "score": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

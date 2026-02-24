@@ -1,0 +1,35 @@
+# Local scratch and generated QA artifacts
+tmp/
+.venv/
+__pycache__/
+*.pyc
+
+# Generated tool caches and reports
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.pylint-cache/
+.cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Generated build/packaging outputs
+build/
+dist/
+.eggs/
+*.egg-info/
+
+# Samples: ignore everything by default, publish only allowlisted anonymized files
+samples/*
+!samples/sample-json-schema.json
+!samples/sample-avsc-schema.json
+!samples/sample-template.xlsx
+
+# Internal assessments
+assessments/
+
+# Local agent instructions
+AGENTS.md
+IMPLEMENTATION_PLAN.md
