@@ -9,7 +9,7 @@ from typing import Any
 
 
 @dataclass(frozen=True)
-class ObservedEventMessage:
+class ActualEventMessage:
     """Decoded Kafka message ready for matching/validation."""
 
     key: str | None

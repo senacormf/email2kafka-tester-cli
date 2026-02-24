@@ -10,7 +10,7 @@ from click.testing import CliRunner
 from openpyxl import load_workbook
 from simple_e2e_tester.cli import cli
 from simple_e2e_tester.email_sending.delivery_outcomes import EmailSendResult
-from simple_e2e_tester.kafka_consumption.observed_event_messages import ObservedEventMessage
+from simple_e2e_tester.kafka_consumption.actual_event_messages import ActualEventMessage
 from simple_e2e_tester.template_generation import TEMPLATE_SHEET_NAME
 
 
@@ -96,8 +96,47 @@ def test_generate_template_command_returns_error_for_invalid_config(tmp_path: Pa
     )
 
     assert result.exit_code != 0
-    assert "Exactly one schema type" in str(result.exception)
+    assert "Exactly one event schema type" in str(result.exception)
     assert not output_path.exists()
+
+
+def test_generate_config_command_writes_placeholder_file_with_default_name(tmp_path: Path) -> None:
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=str(tmp_path)):
+        result = runner.invoke(cli, ["generate-config"])
+        output_path = Path("config.yaml").resolve()
+
+        assert result.exit_code == 0
+        assert output_path.exists()
+        content = output_path.read_text(encoding="utf-8")
+        assert "schema:" in content
+        assert "matching:" in content
+        assert "smtp:" in content
+        assert "mail:" in content
+        assert "kafka:" in content
+        assert "<REQUIRED>" in content
+        assert "<OPTIONAL>" in content
+        assert "# Choose exactly one event schema type" in content
+        assert str(output_path) in result.output
+
+
+def test_generate_config_command_fails_when_output_file_already_exists(tmp_path: Path) -> None:
+    runner = CliRunner()
+    output_path = tmp_path / "config.yaml"
+    output_path.write_text("already-there", encoding="utf-8")
+
+    result = runner.invoke(
+        cli,
+        [
+            "generate-config",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "already exists" in str(result.exception).lower()
+    assert output_path.read_text(encoding="utf-8") == "already-there"
 
 
 def test_run_command_dry_run_writes_results_workbook(tmp_path: Path) -> None:
@@ -206,7 +245,7 @@ def test_run_command_with_mocked_dependencies_writes_validated_results(
             pass
 
         def consume_from(self, start_time):
-            yield ObservedEventMessage(
+            yield ActualEventMessage(
                 key=None,
                 value={},
                 timestamp=datetime.now(UTC),
@@ -218,7 +257,7 @@ def test_run_command_with_mocked_dependencies_writes_validated_results(
             )
 
     monkeypatch.setattr("simple_e2e_tester.cli.ExpectedEventDispatcher", FakeEmailSender)
-    monkeypatch.setattr("simple_e2e_tester.cli.ObservedEventReader", FakeKafkaService)
+    monkeypatch.setattr("simple_e2e_tester.cli.ActualEventReader", FakeKafkaService)
 
     run_result = runner.invoke(
         cli,
@@ -296,7 +335,7 @@ def test_run_command_marks_send_failures_in_output(tmp_path: Path, monkeypatch) 
             return iter(())
 
     monkeypatch.setattr("simple_e2e_tester.cli.ExpectedEventDispatcher", FailingEmailSender)
-    monkeypatch.setattr("simple_e2e_tester.cli.ObservedEventReader", EmptyKafkaService)
+    monkeypatch.setattr("simple_e2e_tester.cli.ActualEventReader", EmptyKafkaService)
 
     run_result = runner.invoke(
         cli,
@@ -326,12 +365,13 @@ def test_run_command_marks_send_failures_in_output(tmp_path: Path, monkeypatch) 
     assert run_info["failed"] == 1
 
 
-def test_run_command_fails_fast_for_json_schema_before_sender_initialization(
+def test_run_command_supports_json_schema_with_mocked_dependencies(
     tmp_path: Path, monkeypatch
 ) -> None:
     runner = CliRunner()
     config_path = _write_config(tmp_path, schema_type="json_schema")
     template_path = tmp_path / "generated-template.xlsx"
+    output_dir = tmp_path / "results"
 
     generate_result = runner.invoke(
         cli,
@@ -355,14 +395,31 @@ def test_run_command_fails_fast_for_json_schema_before_sender_initialization(
     sheet.cell(row=3, column=header_map["SUBJECT"]).value = "Subject-1"
     workbook.save(template_path)
 
-    state = {"sender_initialized": False}
-
-    class GuardEmailSender:
+    class FakeEmailSender:
         def __init__(self, **kwargs) -> None:
-            state["sender_initialized"] = True
-            raise AssertionError("email sender must not be initialized")
+            pass
 
-    monkeypatch.setattr("simple_e2e_tester.cli.ExpectedEventDispatcher", GuardEmailSender)
+        def send_all(self, testcases):
+            return [EmailSendResult.sent(testcase.test_id) for testcase in testcases]
+
+    class FakeKafkaService:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def consume_from(self, start_time):
+            yield ActualEventMessage(
+                key=None,
+                value={},
+                timestamp=datetime.now(UTC),
+                flattened={
+                    "sender": "sender@example.com",
+                    "subject": "Subject-1",
+                    "score": 1.58,
+                },
+            )
+
+    monkeypatch.setattr("simple_e2e_tester.cli.ExpectedEventDispatcher", FakeEmailSender)
+    monkeypatch.setattr("simple_e2e_tester.cli.ActualEventReader", FakeKafkaService)
 
     run_result = runner.invoke(
         cli,
@@ -372,12 +429,17 @@ def test_run_command_fails_fast_for_json_schema_before_sender_initialization(
             str(config_path),
             "--input",
             str(template_path),
+            "--output-dir",
+            str(output_dir),
         ],
     )
 
-    assert run_result.exit_code != 0
-    assert state["sender_initialized"] is False
-    assert "avsc" in str(run_result.exception).lower()
+    assert run_result.exit_code == 0
+    result_files = list(output_dir.glob("*-results-*.xlsx"))
+    assert len(result_files) == 1
+    result_workbook = load_workbook(result_files[0])
+    result_sheet = result_workbook[TEMPLATE_SHEET_NAME]
+    assert result_sheet.cell(row=3, column=result_sheet.max_column).value == "OK"
 
 
 def test_run_command_validates_attachment_paths_before_sender_initialization(

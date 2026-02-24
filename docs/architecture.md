@@ -9,13 +9,13 @@ Each domain owns its entities, services, and tests.
 
 | Domain | Responsibility | Key entry points |
 | --- | --- | --- |
-| `configuration` | Parse and validate YAML/JSON config files. | `load_configuration` |
-| `schema_management` | Parse AVSC/JSON Schema and flatten field paths. | `load_schema_document`, `flatten_schema` |
-| `template_generation` | Generate input Excel templates from schema fields. | `generate_template_workbook` |
-| `template_ingestion` | Read and validate filled templates into test case objects. | `read_template` |
+| `configuration` | Parse and validate YAML/JSON test configuration files. | `load_configuration` |
+| `schema_management` | Parse AVSC/JSON event schema and flatten field paths. | `load_schema_document`, `flatten_schema` |
+| `template_generation` | Generate test template workbooks from schema fields. | `generate_template_workbook` |
+| `template_ingestion` | Read and validate filled test templates into test case objects. | `read_template` |
 | `email_sending` | Compose and send emails via SMTP (parallelized). | `compose_email`, `EmailSender` |
 | `kafka_consumption` | Consume Kafka records from run start and decode Avro payloads. | `KafkaConsumerService.consume_from` |
-| `matching_validation` | Match observed events to expected events and validate expected values. | `match_and_validate` |
+| `matching_validation` | Match actual events to expected events and validate expected values. | `match_and_validate` |
 | `results_writing` | Produce output workbook with actuals, match result, and run metadata. | `write_results_workbook` |
 | `run_execution` | Execute the run use case from request to output workbook. | `execute_email_kafka_validation_run` |
 | `cli` | Expose command-line adapters for `generate-template` and `run`. | `cli` group commands |
@@ -24,20 +24,20 @@ Each domain owns its entities, services, and tests.
 
 ## `generate-template`
 
-1. Load config.
-2. Parse and flatten schema.
-3. Generate workbook with:
+1. Load test configuration.
+2. Parse and flatten event schema.
+3. Generate test template workbook with:
    - `TestCases` sheet: grouped headers `Metadata | Input | Expected`
    - `Schema` sheet: `schema_type`, `schema_hash`, `schema_text`
 
 ## `run`
 
-1. Load config and flatten schema.
+1. Load test configuration and flatten event schema.
 2. Read/validate input workbook.
 3. Record `run_start` timestamp.
-4. Send enabled testcases via SMTP (parallelism from config).
+4. Send enabled test cases via SMTP (parallelism from config).
 5. Consume Kafka records with timestamp `>= run_start`.
-6. Match/validate records against testcases.
+6. Match/validate records against test cases.
 7. Write output workbook:
    - Original columns + `Actual` + `Match`
    - `Schema` and `RunInfo` sheets
@@ -50,7 +50,7 @@ Each domain owns its entities, services, and tests.
 
 ## Architectural invariants currently enforced
 
-- Exactly one schema type must be configured (`avsc` or `json_schema`).
-- Matching fields (`matching.from_field`, `matching.subject_field`) must exist in flattened schema.
+- Exactly one event schema type must be configured (`avsc` or `json_schema`).
+- Matching fields (`matching.from_field`, `matching.subject_field`) must exist in flattened event schema.
 - Template column order must match generated schema-derived fields.
 - IDs must be unique; enabled rows must have unique `(FROM, SUBJECT)` pairs.

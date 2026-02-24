@@ -59,7 +59,7 @@ def compose_email(
     *,
     attachments_base: Path,
 ) -> EmailMessage:
-    """Build an EmailMessage for the testcase."""
+    """Build an EmailMessage for the test case."""
     message = EmailMessage()
     message["Message-ID"] = make_msgid()
     message["From"] = testcase.from_address
@@ -140,7 +140,7 @@ class ExpectedEventDispatcher:  # pylint: disable=too-few-public-methods
 def validate_attachments_for_testcases(
     testcases: Sequence[TemplateTestCase], *, attachments_base: Path
 ) -> None:
-    """Fail fast when an enabled testcase references invalid attachment paths."""
+    """Fail fast when an enabled test case references invalid attachment paths."""
     for testcase in testcases:
         if not testcase.enabled:
             continue

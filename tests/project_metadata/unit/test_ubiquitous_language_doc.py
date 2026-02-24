@@ -18,8 +18,22 @@ def test_ubiquitous_language_doc_exists_with_core_terms() -> None:
         "sender",
         "subject",
         "expected event",
-        "observed event",
+        "actual event",
+        "event schema",
         "matching field path",
+        "test configuration",
+        "test case",
+        "enabled test case",
+        "match result",
+        "mismatch",
+        "conflict",
+        "unmatched expected event",
+        "unmatched actual event",
+        "send status",
+        "run metadata",
+        "attachment mode",
+        "file-path mode",
+        "text-to-pdf mode",
     )
     for term in required_terms:
         assert term in text.lower(), f"Expected glossary to include term: {term}"

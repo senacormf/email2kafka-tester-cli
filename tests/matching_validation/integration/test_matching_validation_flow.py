@@ -7,11 +7,11 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 from simple_e2e_tester.configuration.runtime_settings import MatchingConfig, SchemaConfig
-from simple_e2e_tester.kafka_consumption.observed_event_messages import ObservedEventMessage
+from simple_e2e_tester.kafka_consumption.actual_event_messages import ActualEventMessage
 from simple_e2e_tester.matching_validation.case_evaluator import match_and_validate
 from simple_e2e_tester.matching_validation.event_boundary_mappers import (
+    to_actual_events,
     to_expected_events,
-    to_observed_events,
 )
 from simple_e2e_tester.schema_management import flatten_schema, load_schema_document
 from simple_e2e_tester.template_generation import TEMPLATE_SHEET_NAME, generate_template_workbook
@@ -46,7 +46,7 @@ def test_matching_and_validation_with_generated_template(tmp_path: Path) -> None
     workbook.save(template_path)
 
     testcases = read_template(template_path, [field.path for field in fields]).testcases
-    message = ObservedEventMessage(
+    message = ActualEventMessage(
         key=None,
         value={},
         timestamp=datetime.now(UTC),
@@ -59,7 +59,7 @@ def test_matching_and_validation_with_generated_template(tmp_path: Path) -> None
 
     result = match_and_validate(
         to_expected_events(testcases),
-        to_observed_events([message]),
+        to_actual_events([message]),
         MatchingConfig(from_field="sender_address", subject_field="message_subject"),
         fields,
     )
@@ -68,5 +68,5 @@ def test_matching_and_validation_with_generated_template(tmp_path: Path) -> None
     assert result.matches[0].expected_event.expected_event_id == "FLOW-1"
     assert result.matches[0].mismatches == ()
     assert result.conflicts == ()
-    assert result.unmatched_observed_events == ()
+    assert result.unmatched_actual_events == ()
     assert result.unmatched_expected_event_ids == ()

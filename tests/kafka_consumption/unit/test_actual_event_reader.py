@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import struct
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-import simple_e2e_tester.kafka_consumption.observed_event_reader as kafka_service_module
+import simple_e2e_tester.kafka_consumption.actual_event_reader as kafka_service_module
 from confluent_kafka import KafkaError
 from simple_e2e_tester.configuration.runtime_settings import KafkaSettings, SchemaConfig
-from simple_e2e_tester.kafka_consumption.observed_event_reader import (
-    ObservedEventDecodeError,
-    ObservedEventReader,
+from simple_e2e_tester.kafka_consumption.actual_event_reader import (
+    ActualEventDecodeError,
+    ActualEventReader,
 )
 from simple_e2e_tester.schema_management import flatten_schema, load_schema_document
 
@@ -91,7 +92,13 @@ class FakeConsumer:
         self.records = list(records)
         self._index = 0
 
-    def subscribe(self, topics: list[str], **kwargs: Any) -> None:
+    def subscribe(
+        self,
+        topics: list[str],
+        on_assign: Any = None,
+        on_revoke: Any = None,
+        on_lost: Any = None,
+    ) -> None:
         self.subscribed = topics
 
     def poll(self, timeout: float) -> FakeRecord | None:
@@ -164,7 +171,7 @@ def test_kafka_consumer_yields_messages_after_timestamp() -> None:
         ),
     ]
     consumer = FakeConsumer(records)
-    service = ObservedEventReader(
+    service = ActualEventReader(
         kafka_settings=_kafka_settings(),
         schema_fields=_flattened_fields(),
         schema_config=_schema_config(),
@@ -182,7 +189,7 @@ def test_kafka_consumer_stops_after_timeout() -> None:
     consumer = FakeConsumer([])
     settings = _kafka_settings()
     settings = KafkaSettings(**{**settings.__dict__, "timeout_seconds": 0})
-    service = ObservedEventReader(
+    service = ActualEventReader(
         kafka_settings=settings,
         schema_fields=_flattened_fields(),
         schema_config=_schema_config(),
@@ -200,14 +207,14 @@ def test_kafka_consumer_raises_on_decode_error() -> None:
         FakeRecord(_encode_string("only-one-field"), timestamp=now + timedelta(seconds=1)),
     ]
     consumer = FakeConsumer(records)
-    service = ObservedEventReader(
+    service = ActualEventReader(
         kafka_settings=_kafka_settings(),
         schema_fields=_flattened_fields(),
         schema_config=_schema_config(),
         consumer=consumer,
     )
 
-    with pytest.raises(ObservedEventDecodeError):
+    with pytest.raises(ActualEventDecodeError):
         list(service.consume_from(now))
 
 
@@ -216,7 +223,7 @@ def test_kafka_consumer_accepts_confluent_wire_header() -> None:
     payload = _encode_avro_payload("sender", "subject", ["A"])
     schema_registry_header = b"\x00" + struct.pack(">I", 7)
     records = [FakeRecord(schema_registry_header + payload, timestamp=now + timedelta(seconds=1))]
-    service = ObservedEventReader(
+    service = ActualEventReader(
         kafka_settings=_kafka_settings(),
         schema_fields=_flattened_fields(),
         schema_config=_schema_config(),
@@ -230,41 +237,71 @@ def test_kafka_consumer_accepts_confluent_wire_header() -> None:
     assert messages[0].flattened["ki_ergebnis.klasse"] == ["A"]
 
 
-def test_json_schema_decode_fails_fast_with_clear_message() -> None:
+def test_json_schema_decode_reads_json_object_payload() -> None:
     now = datetime.now(UTC)
     json_schema_config = SchemaConfig(
         schema_type="json_schema",
-        text='{"type":"object","properties":{"emailabsender":{"type":"string"}}}',
+        text="""
+{
+  "type": "object",
+  "properties": {
+    "emailabsender": {"type": "string"},
+    "emailbetreff": {"type": "string"},
+    "ki_ergebnis": {
+      "type": "object",
+      "properties": {
+        "klasse": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}
+""",
         source_path=None,
     )
     fields = flatten_schema(load_schema_document(json_schema_config))
-    service = ObservedEventReader(
+    service = ActualEventReader(
         kafka_settings=_kafka_settings(),
         schema_fields=fields,
         schema_config=json_schema_config,
         consumer=FakeConsumer(
-            [FakeRecord(_encode_string("ignored"), timestamp=now + timedelta(seconds=1))]
+            [
+                FakeRecord(
+                    json.dumps(
+                        {
+                            "emailabsender": "sender@example.com",
+                            "emailbetreff": "Subject-1",
+                            "ki_ergebnis": {"klasse": ["A"]},
+                        }
+                    ).encode("utf-8"),
+                    timestamp=now + timedelta(seconds=1),
+                )
+            ]
         ),
     )
 
-    with pytest.raises(ObservedEventDecodeError, match="json_schema"):
-        list(service.consume_from(now))
+    messages = list(service.consume_from(now))
+
+    assert len(messages) == 1
+    assert messages[0].flattened["emailabsender"] == "sender@example.com"
+    assert messages[0].flattened["emailbetreff"] == "Subject-1"
+    assert messages[0].flattened["ki_ergebnis.klasse"] == ["A"]
 
 
 def test_kafka_consumer_skips_partition_eof_errors() -> None:
     now = datetime.now(UTC)
+    partition_eof_code = getattr(KafkaError, "_PARTITION_EOF", -1)
     records = [
         FakeRecord(
             b"",
             timestamp=now + timedelta(seconds=1),
-            error_obj=FakeError(KafkaError._PARTITION_EOF, "eof"),
+            error_obj=FakeError(partition_eof_code, "eof"),
         ),
         FakeRecord(
             _encode_avro_payload("sender", "subject", ["A"]),
             timestamp=now + timedelta(seconds=1),
         ),
     ]
-    service = ObservedEventReader(
+    service = ActualEventReader(
         kafka_settings=_kafka_settings(),
         schema_fields=_flattened_fields(),
         schema_config=_schema_config(),
@@ -286,14 +323,14 @@ def test_kafka_consumer_raises_for_non_eof_kafka_error() -> None:
             error_obj=FakeError(-1, "fatal"),
         )
     ]
-    service = ObservedEventReader(
+    service = ActualEventReader(
         kafka_settings=_kafka_settings(),
         schema_fields=_flattened_fields(),
         schema_config=_schema_config(),
         consumer=FakeConsumer(records),
     )
 
-    with pytest.raises(ObservedEventDecodeError, match="Kafka error: fatal"):
+    with pytest.raises(ActualEventDecodeError, match="Kafka error: fatal"):
         list(service.consume_from(now))
 
 
@@ -310,7 +347,7 @@ def test_kafka_consumer_skips_records_without_timestamp() -> None:
         ),
     ]
     settings = KafkaSettings(**{**_kafka_settings().__dict__, "timeout_seconds": 1})
-    service = ObservedEventReader(
+    service = ActualEventReader(
         kafka_settings=settings,
         schema_fields=_flattened_fields(),
         schema_config=_schema_config(),
@@ -327,7 +364,13 @@ def test_consumer_creation_uses_silent_logger(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
     class _FakeCreatedConsumer:
-        def subscribe(self, topics: list[str], **kwargs: Any) -> None:
+        def subscribe(
+            self,
+            topics: list[str],
+            on_assign: Any = None,
+            on_revoke: Any = None,
+            on_lost: Any = None,
+        ) -> None:
             return None
 
         def poll(self, timeout: float) -> None:
@@ -346,7 +389,7 @@ def test_consumer_creation_uses_silent_logger(monkeypatch) -> None:
 
     monkeypatch.setattr(kafka_service_module, "Consumer", _consumer_factory)
 
-    ObservedEventReader(
+    ActualEventReader(
         kafka_settings=_kafka_settings(),
         schema_fields=_flattened_fields(),
         schema_config=_schema_config(),
@@ -365,7 +408,7 @@ def test_kafka_consumer_decodes_invalid_utf8_key_as_none() -> None:
             key=b"\xff\xfe",
         ),
     ]
-    service = ObservedEventReader(
+    service = ActualEventReader(
         kafka_settings=_kafka_settings(),
         schema_fields=_flattened_fields(),
         schema_config=_schema_config(),
@@ -385,7 +428,13 @@ def test_create_consumer_uses_security_and_default_group(monkeypatch: pytest.Mon
         def __init__(self, config: dict[str, object]) -> None:
             captured["config"] = config
 
-        def subscribe(self, topics: list[str], **kwargs: Any) -> None:
+        def subscribe(
+            self,
+            topics: list[str],
+            on_assign: Any = None,
+            on_revoke: Any = None,
+            on_lost: Any = None,
+        ) -> None:
             pass
 
         def poll(self, timeout: float) -> None:
@@ -395,7 +444,7 @@ def test_create_consumer_uses_security_and_default_group(monkeypatch: pytest.Mon
             pass
 
     monkeypatch.setattr(
-        "simple_e2e_tester.kafka_consumption.observed_event_reader.Consumer",
+        "simple_e2e_tester.kafka_consumption.actual_event_reader.Consumer",
         FakeConfluentConsumer,
     )
     settings = KafkaSettings(
@@ -413,7 +462,7 @@ def test_create_consumer_uses_security_and_default_group(monkeypatch: pytest.Mon
         auto_offset_reset="latest",
     )
 
-    ObservedEventReader(
+    ActualEventReader(
         kafka_settings=settings,
         schema_fields=_flattened_fields(),
         schema_config=_schema_config(),

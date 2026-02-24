@@ -73,7 +73,9 @@ def _parse_schema_section(value: Any, base_path: Path) -> SchemaConfig:
     section = _require_mapping(value, "schema")
     type_candidates = [key for key in ("avsc", "json_schema") if section.get(key)]
     if len(type_candidates) != 1:
-        raise ConfigurationError("Exactly one schema type (avsc or json_schema) must be provided.")
+        raise ConfigurationError(
+            "Exactly one event schema type (avsc or json_schema) must be provided."
+        )
 
     schema_type = type_candidates[0]
     definition = section[schema_type]
@@ -134,7 +136,7 @@ def _parse_smtp_section(value: Any) -> SMTPSettings:
     timeout_seconds = _require_positive_int(
         section.get("timeout_seconds", 30), "smtp.timeout_seconds"
     )
-    parallelism = _require_positive_int(section.get("parallelism", 8), "smtp.parallelism")
+    parallelism = _require_positive_int(section.get("parallelism", 4), "smtp.parallelism")
     return SMTPSettings(
         host=host,
         port=port,

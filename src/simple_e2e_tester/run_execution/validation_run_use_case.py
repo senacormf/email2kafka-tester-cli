@@ -16,14 +16,14 @@ from simple_e2e_tester.email_sending.email_dispatch import (
     SynchronousSMTPClient,
     validate_attachments_for_testcases,
 )
-from simple_e2e_tester.kafka_consumption.observed_event_reader import (
-    ObservedEventDecodeError,
-    ObservedEventReader,
+from simple_e2e_tester.kafka_consumption.actual_event_reader import (
+    ActualEventDecodeError,
+    ActualEventReader,
 )
 from simple_e2e_tester.matching_validation import match_and_validate
 from simple_e2e_tester.matching_validation.event_boundary_mappers import (
+    to_actual_events,
     to_expected_events,
-    to_observed_events,
 )
 from simple_e2e_tester.matching_validation.matching_outcomes import MatchValidationResult
 from simple_e2e_tester.results_writing import RunMetadata, write_results_workbook
@@ -58,7 +58,7 @@ def execute_email_kafka_validation_run(
 ) -> RunOutcome:
     """Execute one full email-kafka validation run and return run outcome."""
     resolved_email_sender_cls = email_sender_cls or ExpectedEventDispatcher
-    resolved_kafka_service_cls = kafka_service_cls or ObservedEventReader
+    resolved_kafka_service_cls = kafka_service_cls or ActualEventReader
     resolved_smtp_client_factory = smtp_client_factory or SynchronousSMTPClient
 
     artifacts = _load_run_artifacts(request.config_path, request.input_path)
@@ -113,11 +113,6 @@ def _resolve_output_path(input_path: str, output_dir: str | None) -> Path:
     return destination / f"{input_file.stem}-results-{timestamp}.xlsx"
 
 
-def _validate_run_mode_schema(schema_type: str) -> None:
-    if schema_type != "avsc":
-        raise ValueError("Run mode requires schema.avsc for Kafka decoding.")
-
-
 def _load_run_artifacts(config_path: str, input_path: str) -> RunArtifacts:
     try:
         configuration = load_configuration(config_path)
@@ -142,7 +137,6 @@ def _prepare_kafka_service(
     if dry_run:
         return None
     try:
-        _validate_run_mode_schema(artifacts.configuration.schema.schema_type)
         validate_attachments_for_testcases(
             artifacts.testcases,
             attachments_base=artifacts.attachments_base,
@@ -152,7 +146,7 @@ def _prepare_kafka_service(
             schema_fields=artifacts.fields,
             schema_config=artifacts.configuration.schema,
         )
-    except (EmailCompositionError, ObservedEventDecodeError, ValueError) as exc:
+    except (EmailCompositionError, ActualEventDecodeError) as exc:
         raise RunExecutionError(str(exc)) from exc
 
 
@@ -164,7 +158,7 @@ def _execute_dry_run(testcases) -> _RunExecution:
     match_result = MatchValidationResult(
         matches=(),
         conflicts=(),
-        unmatched_observed_events=(),
+        unmatched_actual_events=(),
         unmatched_expected_event_ids=tuple(
             expected_event.expected_event_id
             for expected_event in expected_events
@@ -193,9 +187,18 @@ def _execute_live_run(
         attachments_base=artifacts.attachments_base,
     )
     kafka_future: Future[list] | None = None
+    enabled_testcases = [testcase for testcase in artifacts.testcases if testcase.enabled]
+    expected_events_for_stop = to_expected_events(enabled_testcases)
     with ThreadPoolExecutor(max_workers=1) as executor:
-        if kafka_service:
-            kafka_future = executor.submit(_read_observed_event_messages, kafka_service, run_start)
+        if kafka_service and enabled_testcases:
+            kafka_future = executor.submit(
+                _read_actual_event_messages,
+                kafka_service,
+                run_start,
+                expected_events_for_stop,
+                artifacts.configuration.matching,
+                artifacts.fields,
+            )
         send_results = sender.send_all(artifacts.testcases)
         kafka_messages = kafka_future.result() if kafka_future else []
 
@@ -207,10 +210,10 @@ def _execute_live_run(
         if send_status_by_test_id.get(testcase.test_id) == SendStatus.SENT
     ]
     expected_events = to_expected_events(sent_testcases)
-    observed_events = to_observed_events(kafka_messages)
+    actual_events = to_actual_events(kafka_messages)
     match_result = match_and_validate(
         expected_events,
-        observed_events,
+        actual_events,
         artifacts.configuration.matching,
         artifacts.fields,
     )
@@ -221,5 +224,38 @@ def _execute_live_run(
     )
 
 
-def _read_observed_event_messages(kafka_service, run_start: datetime) -> list:
-    return list(kafka_service.consume_from(run_start))
+def _read_actual_event_messages(
+    kafka_service,
+    run_start: datetime,
+    expected_events,
+    matching_config,
+    schema_fields,
+) -> list:
+    consumed_messages = []
+    for message in kafka_service.consume_from(run_start):
+        consumed_messages.append(message)
+        if _all_enabled_expected_events_matched(
+            expected_events,
+            consumed_messages,
+            matching_config,
+            schema_fields,
+        ):
+            break
+    return consumed_messages
+
+
+def _all_enabled_expected_events_matched(
+    expected_events,
+    kafka_messages,
+    matching_config,
+    schema_fields,
+) -> bool:
+    if not any(expected_event.enabled for expected_event in expected_events):
+        return True
+    current_result = match_and_validate(
+        expected_events,
+        to_actual_events(kafka_messages),
+        matching_config,
+        schema_fields,
+    )
+    return len(current_result.unmatched_expected_event_ids) == 0

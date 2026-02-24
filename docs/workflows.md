@@ -2,42 +2,65 @@
 
 ## Commands
 
-## `generate-template`
+## `bootstrap`
 
 ```bash
-python -m simple_e2e_tester generate-template --config <config> --output <template.xlsx>
+python e2k-tester bootstrap
 ```
 
 Behavior:
-- Loads and validates config.
-- Flattens schema fields.
-- Writes template workbook with sheets:
+- Creates `.venv` if it does not exist.
+- Installs `uv` into `.venv`.
+- Runs `uv sync --all-groups` using the `.venv`-local `uv` binary.
+
+## `generate-config`
+
+```bash
+python e2k-tester generate-config [--output <config.yaml>]
+```
+
+Behavior:
+- Writes a placeholder YAML test configuration with inline comments.
+- Uses `<REQUIRED>` and `<OPTIONAL>` placeholders across all supported sections.
+- Defaults to `./config.yaml` when `--output` is not provided.
+- Fails if the target output file already exists.
+
+## `generate-template`
+
+```bash
+python e2k-tester generate-template --config <test-configuration> --output <template.xlsx>
+```
+
+Behavior:
+- Loads and validates the test configuration.
+- Flattens event schema fields.
+- Writes a test template workbook with sheets:
   - `TestCases`
   - `Schema`
 
 ## `run`
 
 ```bash
-python -m simple_e2e_tester run --config <config> --input <filled-template.xlsx> [--output-dir <dir>]
+python e2k-tester run --config <test-configuration> --input <filled-template.xlsx> [--output-dir <dir>]
 ```
 
-Extension (non-spec):
+Optional dry run:
 
 ```bash
-python -m simple_e2e_tester run --config <config> --input <filled-template.xlsx> --dry-run
+python e2k-tester run --config <test-configuration> --input <filled-template.xlsx> --dry-run
 ```
 
 Behavior:
 - Reads and validates input workbook.
-- Sends enabled testcase emails (`--dry-run` skips SMTP/Kafka).
-- Consumes Kafka records at/after run start time.
-- Matches observed events to expected events and validates values.
+- Sends enabled test case emails (skipped with `--dry-run`).
+- Consumes Kafka records at/after run start time (skipped with `--dry-run`).
+- Matches actual events to expected events and validates values.
 - Writes results workbook named:
   - `<input_stem>-results-<YYYYMMDD-HHMMSS>.xlsx`
 
 ## Workbook contract
 
-## Input template (`TestCases` sheet)
+## Input test template (`TestCases` sheet)
 
 Row 1 group headers:
 - `Metadata`
@@ -47,7 +70,7 @@ Row 1 group headers:
 Row 2 column headers:
 - Metadata: `ID`, `Tags`, `Enabled`, `Notes`
 - Input: `FROM`, `SUBJECT`, `BODY`, `ATTACHMENT`
-- Expected: flattened schema field names
+- Expected: flattened event schema field names
 
 ## Result workbook (`TestCases` sheet)
 
@@ -56,14 +79,14 @@ Adds:
 - `Match` group with one `Match` column
 
 Also includes:
-- `Schema` sheet: schema type/hash/text
+- `Schema` sheet: event schema type/hash/text
 - `RunInfo` sheet: run metadata and counts
 
-## Attachment handling
+## Attachment modes
 
 `ATTACHMENT` cell is parsed line-by-line:
-- File path mode: first non-empty line starts with a path prefix (`./`, `/`, `.\\`, `C:\`).
-- Text-to-PDF mode: otherwise, all text is rendered as a generated PDF attachment.
+- file-path mode: first non-empty line starts with a path prefix (`./`, `/`, `.\\`, `C:\`).
+- text-to-pdf mode: otherwise, all text is rendered as a generated PDF attachment.
 
 ## Matching and validation rules
 
@@ -73,6 +96,7 @@ Also includes:
   - If unresolved, mark conflict.
 - Expected cell semantics:
   - Empty -> ignored.
+  - `IGNORE` is treated as a normal exact string value (not a special token).
   - `MUSS_LEER_SEIN` -> actual must be empty/null.
   - Float tolerance expressions supported:
     - `v+-t`
@@ -88,8 +112,8 @@ Also includes:
 ## Row status values in `Match`
 
 - `OK`: matched and validation passed.
-- mismatch text: matched with validation differences.
-- `NOT_FOUND`: enabled testcase not matched.
-- `CONFLICT`: ambiguous message-to-testcase matching.
+- mismatch details: matched with validation differences.
+- `NOT_FOUND`: enabled test case not matched.
+- `CONFLICT`: ambiguous message-to-test-case matching.
 - `SEND_FAILED`: SMTP send failed.
 - `SKIPPED`: disabled row or dry-run skipped send.

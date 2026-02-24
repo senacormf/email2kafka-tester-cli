@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 from simple_e2e_tester.configuration.runtime_settings import SchemaConfig
 from simple_e2e_tester.schema_management import flatten_schema, load_schema_document
 from simple_e2e_tester.template_generation.template_workbook_builder import (
@@ -71,7 +72,7 @@ def test_template_contains_expected_columns_and_groups(tmp_path: Path) -> None:
     merged_ranges = {str(rng) for rng in sheet.merged_cells.ranges}
     assert "A1:D1" in merged_ranges
     assert "E1:H1" in merged_ranges
-    last_col_letter = sheet.cell(row=2, column=len(header_row)).column_letter
+    last_col_letter = get_column_letter(len(header_row))
     assert f"I1:{last_col_letter}1" in merged_ranges
 
 

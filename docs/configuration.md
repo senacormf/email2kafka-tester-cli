@@ -1,26 +1,37 @@
 # Configuration Reference
 
-`--config` is mandatory for both CLI modes. YAML and JSON are supported.
+`--config` is mandatory for both CLI modes. The test configuration supports YAML and JSON.
+
+## Scaffold a test configuration
+
+Use `generate-config` to create a commented YAML test configuration template with placeholders:
+
+```bash
+python e2k-tester generate-config --output ./config.yaml
+```
+
+The generated template includes all supported fields with `<REQUIRED>` / `<OPTIONAL>` placeholders.
+`generate-config` fails if the output file already exists.
 
 ## Top-level keys
 
 | Key | Required | Description |
 | --- | --- | --- |
-| `schema` | Yes | Schema source and type (`avsc` or `json_schema`). |
-| `matching` | Yes | Field names used to match Kafka records to testcase rows. |
+| `schema` | Yes | Event schema source and type (`avsc` or `json_schema`). |
+| `matching` | Yes | Field names used to match Kafka records to test case rows. |
 | `smtp` | Yes | SMTP connection and parallel sending settings. |
 | `mail` | Yes | Destination mailbox settings. |
 | `kafka` | Yes | Kafka topic/consumer settings. |
 
 ## `schema`
 
-Exactly one schema type is allowed:
+Exactly one event schema type is allowed:
 - `schema.avsc`
 - `schema.json_schema`
 
-For the chosen schema type, define exactly one source:
-- `inline`: schema JSON string
-- `path`: file path to schema JSON
+For the chosen event schema type, define exactly one source:
+- `inline`: event schema JSON string
+- `path`: file path to event schema JSON
 
 ### Example (AVSC via path)
 
@@ -47,7 +58,7 @@ schema:
 
 ## `matching`
 
-Both values are required and must reference flattened schema paths.
+Both values are required and must reference flattened event schema paths.
 
 ```yaml
 matching:
@@ -74,7 +85,7 @@ matching:
 | `use_ssl` | No | `false` | Use SMTPS |
 | `use_starttls` | No | `not use_ssl` | STARTTLS when SSL is off |
 | `timeout_seconds` | No | `30` | SMTP timeout |
-| `parallelism` | No | `8` | Concurrent sends |
+| `parallelism` | No | `4` | Concurrent sends |
 
 ## `mail`
 
@@ -117,5 +128,6 @@ kafka:
 
 ## Important runtime note
 
-Run mode Kafka decoding currently supports `avsc` only.  
-When `schema.json_schema` is configured, run mode fails with a clear decode error.
+Run mode Kafka decoding supports both configured schema types:
+- `schema.avsc`: AVSC binary decode (with Confluent wire header support)
+- `schema.json_schema`: UTF-8 JSON object payload decode (with Confluent wire header support)

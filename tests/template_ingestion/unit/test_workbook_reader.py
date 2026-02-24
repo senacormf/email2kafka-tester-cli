@@ -194,7 +194,7 @@ def test_read_template_errors_on_unparseable_enabled_value(tmp_path: Path) -> No
         read_template(template_path, field_names)
 
 
-def test_read_template_errors_when_no_testcase_rows_exist(tmp_path: Path) -> None:
+def test_read_template_errors_when_no_test_case_rows_exist(tmp_path: Path) -> None:
     template_path, field_names = _write_template(tmp_path)
     workbook = load_workbook(template_path)
     sheet = workbook[TEMPLATE_SHEET_NAME]
@@ -202,7 +202,7 @@ def test_read_template_errors_when_no_testcase_rows_exist(tmp_path: Path) -> Non
         sheet.delete_rows(3, amount=sheet.max_row - 2)
     workbook.save(template_path)
 
-    with pytest.raises(TemplateValidationError, match="does not contain any testcase rows"):
+    with pytest.raises(TemplateValidationError, match="does not contain any test case rows"):
         read_template(template_path, field_names)
 
 

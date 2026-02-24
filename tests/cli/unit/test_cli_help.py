@@ -9,5 +9,7 @@ def test_cli_displays_help() -> None:
     result = runner.invoke(cli, ["--help"])
 
     assert result.exit_code == 0
+    assert "bootstrap" in result.output
+    assert "generate-config" in result.output
     assert "generate-template" in result.output
     assert "run" in result.output

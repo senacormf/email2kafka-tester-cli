@@ -17,7 +17,7 @@ class SendStatus(str, Enum):
 
 @dataclass(frozen=True)
 class EmailSendResult:
-    """Outcome of attempting to send a testcase email."""
+    """Outcome of attempting to send a test case email."""
 
     test_id: str
     status: SendStatus

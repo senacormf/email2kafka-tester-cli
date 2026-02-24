@@ -18,7 +18,7 @@ class SchemaConfig:
 
 @dataclass(frozen=True)
 class MatchingConfig:
-    """Field names used for matching Kafka records with testcases."""
+    """Field names used for matching Kafka records with test cases."""
 
     from_field: str
     subject_field: str

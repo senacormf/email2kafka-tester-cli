@@ -27,25 +27,25 @@ Current domains with tests include:
 Run all tests:
 
 ```bash
-./scripts/uvrun pytest -q
+uv run pytest -q
 ```
 
 Run domain-focused suites:
 
 ```bash
-./scripts/uvrun pytest tests/<domain>/unit -q
-./scripts/uvrun pytest tests/<domain>/integration -q
+uv run pytest tests/<domain>/unit -q
+uv run pytest tests/<domain>/integration -q
 ```
 
 ## Recommended quality gates
 
 ```bash
-./scripts/uvrun ruff check .
-./scripts/uvrun mypy src tests
-./scripts/uvrun pylint src/simple_e2e_tester
-./scripts/uvrun pytest -q
+uv run ruff check .
+uv run mypy src tests
+uv run pylint src/simple_e2e_tester
+uv run pytest -q
 ```
 
 ## Latest local verification during this documentation pass
 
-- `./scripts/uvrun pytest -q` passed.
+- `uv run pytest -q` passed.

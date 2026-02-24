@@ -27,7 +27,7 @@ class TemplateValidationError(Exception):
 def read_template(
     template_path: Path | str, expected_field_names: Sequence[str]
 ) -> TemplateReadResult:
-    """Read the Excel workbook and return normalized testcases."""
+    """Read the Excel workbook and return normalized test cases."""
     path = Path(template_path)
     if not path.exists():
         raise TemplateValidationError(f"Template file not found: {path}")
@@ -48,7 +48,7 @@ def read_template(
         sheet.cell(row=2, column=index + 1).value for index in range(len(expected_columns))
     ]
     if header_values != expected_columns:
-        raise TemplateValidationError("Template columns do not match the configured schema.")
+        raise TemplateValidationError("Template columns do not match the configured event schema.")
     _ensure_no_extra_columns(sheet, len(expected_columns))
 
     header_map = {name: idx + 1 for idx, name in enumerate(expected_columns)}
@@ -105,7 +105,7 @@ def _parse_rows(
             seen_pairs[pair] = row_idx
         testcases.append(testcase)
     if not testcases:
-        raise TemplateValidationError("Template does not contain any testcase rows.")
+        raise TemplateValidationError("Template does not contain any test case rows.")
     return testcases
 
 

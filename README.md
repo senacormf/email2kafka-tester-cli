@@ -2,9 +2,11 @@
 
 Schema-driven E2E test runner for validating an `Email -> Kafka` flow.
 
-It provides two CLI modes:
-- `generate-template`: build an Excel input template from an AVSC or JSON Schema.
-- `run`: execute test rows, send emails via SMTP, consume Kafka results, validate expected vs actual values, and write a result workbook.
+It provides CLI commands for setup and execution:
+- `bootstrap`: create `.venv`, install `uv` in that virtual environment, and sync dependency groups.
+- `generate-config`: create a commented YAML test configuration scaffold with placeholders.
+- `generate-template`: build a test template workbook from an AVSC or JSON event schema.
+- `run`: execute test rows from a filled test template, send emails via SMTP, consume Kafka results, validate expected vs actual values, and write a result workbook.
 
 The implementation follows a domain-first structure and TDD workflow as defined in `AGENTS.md`.
 
@@ -12,41 +14,56 @@ The implementation follows a domain-first structure and TDD workflow as defined 
 
 Implemented and verified by tests:
 - Configuration loading and validation (YAML/JSON).
-- Schema flattening for AVSC and JSON Schema.
+- Event schema flattening for AVSC and JSON Schema.
 - Template generation (`Metadata`, `Input`, `Expected`) plus `Schema` sheet.
 - Template ingestion and sanity checks (IDs, sender/subject uniqueness, email format, schema column alignment).
 - SMTP email composition/sending with concurrency and attachment handling.
-- Kafka consumption with Avro binary decoding (including Confluent wire header).
-- Matching and validation rules (`IGNORE`, `MUSS_LEER_SEIN`, float tolerance syntax like `3,14+-0,2`) over expected/observed events.
+- Kafka consumption with AVSC binary decoding and JSON payload decoding for JSON Schema (including Confluent wire header handling).
+- Matching and validation rules (empty expected cell -> ignored, `MUSS_LEER_SEIN`, float tolerance syntax like `3,14+-0,2`) over expected/actual events.
 - Result workbook writing (`Actual`, `Match`, `RunInfo`, `Schema`).
 
 Known behavior to be aware of:
-- `run` currently supports Kafka decode for `avsc` schemas only. `json_schema` in run mode raises a clear decode error.
-- The CLI currently exposes a non-spec extension: `run --dry-run`.
+- `run --dry-run` is supported for smoke-style runs that skip SMTP/Kafka interactions while still producing a results workbook.
 
 See `/docs/spec-alignment.md` for a precise spec-vs-implementation map.
 
 ## Quick start
 
-1. Install dependencies:
+1. Bootstrap the local environment:
+
 ```bash
-.venv/bin/uv sync --all-groups
+python e2k-tester bootstrap
 ```
 
-All runtime and quality commands below use the repository wrapper `./scripts/uvrun`.
+Manual dependency-sync alternative:
 
-2. Generate a template:
 ```bash
-./scripts/uvrun python -m simple_e2e_tester generate-template \
+uv sync
+```
+
+For development tooling (tests/lint/type-check), install all groups:
+
+```bash
+uv sync --all-groups
+```
+
+2. Generate a test template:
+```bash
+python e2k-tester generate-template \
   --config /path/to/config.yaml \
   --output /path/to/template.xlsx
 ```
 
-3. Fill test rows in the generated workbook (`TestCases` sheet).
+Optional first step to scaffold a test configuration:
+```bash
+python e2k-tester generate-config --output /path/to/config.yaml
+```
+
+3. Fill test rows in the generated test template workbook (`TestCases` sheet).
 
 4. Run the test execution:
 ```bash
-./scripts/uvrun python -m simple_e2e_tester run \
+python e2k-tester run \
   --config /path/to/config.yaml \
   --input /path/to/template.xlsx \
   --output-dir /path/to/results
@@ -54,7 +71,7 @@ All runtime and quality commands below use the repository wrapper `./scripts/uvr
 
 Optional smoke mode:
 ```bash
-./scripts/uvrun python -m simple_e2e_tester run \
+python e2k-tester run \
   --config /path/to/config.yaml \
   --input /path/to/template.xlsx \
   --dry-run
@@ -68,7 +85,6 @@ Optional smoke mode:
 - CLI workflow and workbook semantics: `docs/workflows.md`
 - Spec alignment and known gaps: `docs/spec-alignment.md`
 - Testing and quality gates: `docs/testing-and-quality.md`
-- Authoritative requirement baseline: `application-spec.md`
 - Development process and constraints: `AGENTS.md`
 
 ## Repository layout

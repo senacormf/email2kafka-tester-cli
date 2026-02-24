@@ -9,10 +9,10 @@ from pathlib import Path
 from openpyxl import load_workbook
 from simple_e2e_tester.configuration.runtime_settings import SchemaConfig
 from simple_e2e_tester.email_sending.delivery_outcomes import SendStatus
-from simple_e2e_tester.kafka_consumption.observed_event_messages import ObservedEventMessage
+from simple_e2e_tester.kafka_consumption.actual_event_messages import ActualEventMessage
 from simple_e2e_tester.matching_validation.event_boundary_mappers import (
+    to_actual_events,
     to_expected_events,
-    to_observed_events,
 )
 from simple_e2e_tester.matching_validation.matching_outcomes import (
     FieldMismatch,
@@ -67,9 +67,9 @@ def _prepare_template(tmp_path: Path) -> tuple[Path, list]:
     return template_path, fields
 
 
-def _message(sender: str, subject: str, score: float) -> ObservedEventMessage:
+def _message(sender: str, subject: str, score: float) -> ActualEventMessage:
     flattened = {"sender": sender, "subject": subject, "score": score}
-    return ObservedEventMessage(
+    return ActualEventMessage(
         key=None,
         value=flattened,
         timestamp=datetime.now(UTC),
@@ -86,18 +86,18 @@ def test_writes_output_with_actual_match_and_duplicated_rows(tmp_path: Path) -> 
 
     first_match = ValidatedMatch(
         expected_event=expected_tc1,
-        observed_event=to_observed_events([_message("sender@example.com", "Subject-1", 1.55)])[0],
+        actual_event=to_actual_events([_message("sender@example.com", "Subject-1", 1.55)])[0],
         mismatches=(),
     )
     second_match = ValidatedMatch(
         expected_event=expected_tc1,
-        observed_event=to_observed_events([_message("sender@example.com", "Subject-1", 1.80)])[0],
+        actual_event=to_actual_events([_message("sender@example.com", "Subject-1", 1.80)])[0],
         mismatches=(FieldMismatch(field="score", expected="1,50+-0,1", actual="1.8"),),
     )
     result = MatchValidationResult(
         matches=(first_match, second_match),
         conflicts=(),
-        unmatched_observed_events=(),
+        unmatched_actual_events=(),
         unmatched_expected_event_ids=("TC-2",),
     )
 
@@ -161,11 +161,11 @@ def test_marks_conflict_and_send_failure_rows(tmp_path: Path) -> None:
         matches=(),
         conflicts=(
             MatchingConflict(
-                observed_event=to_observed_events([_message("x@example.com", "x", 0.0)])[0],
+                actual_event=to_actual_events([_message("x@example.com", "x", 0.0)])[0],
                 candidate_expected_event_ids=("TC-2",),
             ),
         ),
-        unmatched_observed_events=(),
+        unmatched_actual_events=(),
         unmatched_expected_event_ids=("TC-1", "TC-2"),
     )
 
@@ -200,7 +200,7 @@ def test_not_found_excludes_skipped_rows(tmp_path: Path) -> None:
     result = MatchValidationResult(
         matches=(),
         conflicts=(),
-        unmatched_observed_events=(),
+        unmatched_actual_events=(),
         unmatched_expected_event_ids=("TC-1",),
     )
 

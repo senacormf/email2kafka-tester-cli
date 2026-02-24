@@ -10,7 +10,7 @@ CellValue = object
 
 @dataclass(frozen=True)
 class TemplateTestCase:  # pylint: disable=too-many-instance-attributes
-    """Normalized representation of an Excel testcase row."""
+    """Normalized representation of an Excel test case row."""
 
     row_number: int
     test_id: str

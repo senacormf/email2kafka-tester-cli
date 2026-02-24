@@ -17,7 +17,7 @@ def test_matching_core_does_not_import_template_or_kafka_entities() -> None:
     )
     forbidden_import_fragments = (
         "simple_e2e_tester.template_ingestion.testcase_models",
-        "simple_e2e_tester.kafka_consumption.observed_event_messages",
+        "simple_e2e_tester.kafka_consumption.actual_event_messages",
     )
 
     for module_path in core_modules:

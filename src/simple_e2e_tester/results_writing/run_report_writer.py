@@ -56,7 +56,7 @@ class _RunCounts:
 
 @dataclass(frozen=True)
 class _RowWriteContext:
-    """Context needed while writing testcase rows."""
+    """Context needed while writing test case rows."""
 
     layout: _SheetLayout
     matches_by_test_id: Mapping[str, Sequence]
@@ -240,7 +240,7 @@ def _write_match_rows(
             row_number=row_number,
             start_column=layout.actual_start_column,
             expected_field_names=layout.expected_field_names,
-            flattened_values=validated_match.observed_event.flattened,
+            flattened_values=validated_match.actual_event.flattened,
         )
         sheet.cell(
             row=row_number,
@@ -254,7 +254,7 @@ def _ensure_header_prefix(sheet, expected_columns: Sequence[str]) -> None:
         sheet.cell(row=2, column=index).value for index in range(1, len(expected_columns) + 1)
     ]
     if header_values != list(expected_columns):
-        raise ValueError("Template columns do not match expected schema-derived columns.")
+        raise ValueError("Template columns do not match expected event-schema-derived columns.")
 
 
 def _write_actual_and_match_headers(

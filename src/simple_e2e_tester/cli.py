@@ -7,12 +7,18 @@ from pathlib import Path
 
 import click
 
-from simple_e2e_tester.configuration import ConfigurationError, load_configuration
+from simple_e2e_tester.bootstrap import BootstrapError, bootstrap_project_environment
+from simple_e2e_tester.configuration import (
+    DEFAULT_CONFIG_FILENAME,
+    ConfigurationError,
+    load_configuration,
+    write_placeholder_configuration,
+)
 from simple_e2e_tester.email_sending.email_dispatch import (
     ExpectedEventDispatcher,
     SynchronousSMTPClient,
 )
-from simple_e2e_tester.kafka_consumption.observed_event_reader import ObservedEventReader
+from simple_e2e_tester.kafka_consumption.actual_event_reader import ActualEventReader
 from simple_e2e_tester.run_execution import (
     RunExecutionError,
     RunRequest,
@@ -32,23 +38,53 @@ def cli() -> None:
     """Schema-driven E2E tester utility."""
 
 
+@cli.command(name="generate-config")
+@click.option(
+    "--output",
+    "output_path",
+    required=False,
+    default=DEFAULT_CONFIG_FILENAME,
+    show_default=True,
+    type=click.Path(path_type=str),
+    help="Path to the YAML test configuration template to write",
+)
+def generate_config(output_path: str) -> None:
+    """Generate a placeholder YAML test configuration with guidance comments."""
+    try:
+        resolved_output = write_placeholder_configuration(output_path)
+    except (FileExistsError, OSError) as exc:
+        raise CliError(str(exc)) from exc
+    click.echo(str(resolved_output))
+
+
+@cli.command(name="bootstrap")
+def bootstrap() -> None:
+    """Prepare local virtual environment and install project dependencies."""
+    repo_root = Path(__file__).resolve().parents[2]
+    try:
+        bootstrap_project_environment(repo_root=repo_root)
+    except BootstrapError as exc:
+        raise CliError(str(exc)) from exc
+    click.echo(f"local virtual environment ready: {repo_root / '.venv'}")
+
+
 @cli.command(name="generate-template")
 @click.option(
     "--config",
     "config_path",
     required=True,
     type=click.Path(path_type=str),
-    help="Path to YAML/JSON config file",
+    help="Path to YAML/JSON test configuration file",
 )
 @click.option(
     "--output",
     "output_path",
     required=True,
     type=click.Path(path_type=str),
-    help="Path to the Excel template to write",
+    help="Path to the test template workbook to write",
 )
 def generate_template(config_path: str, output_path: str) -> None:
-    """Generate an Excel template from the configured schema."""
+    """Generate a test template workbook from the configured event schema."""
     try:
         configuration = load_configuration(config_path)
         fields = flatten_schema(load_schema_document(configuration.schema))
@@ -64,14 +100,14 @@ def generate_template(config_path: str, output_path: str) -> None:
     "config_path",
     required=True,
     type=click.Path(path_type=str),
-    help="Path to YAML/JSON config file",
+    help="Path to YAML/JSON test configuration file",
 )
 @click.option(
     "--input",
     "input_path",
     required=True,
     type=click.Path(path_type=str),
-    help="Path to the filled Excel template",
+    help="Path to the filled test template workbook",
 )
 @click.option(
     "--output-dir",
@@ -84,10 +120,10 @@ def generate_template(config_path: str, output_path: str) -> None:
     "--dry-run",
     is_flag=True,
     default=False,
-    help="Skip SMTP/Kafka interactions; useful for smoke testing (not part of spec behavior).",
+    help="Skip SMTP/Kafka interactions and write a skipped-results workbook.",
 )
 def run_tests(config_path: str, input_path: str, output_dir: str | None, dry_run: bool) -> None:
-    """Execute tests defined in the Excel template."""
+    """Execute tests defined in the test template workbook."""
     try:
         outcome = execute_email_kafka_validation_run(
             RunRequest(
@@ -97,7 +133,7 @@ def run_tests(config_path: str, input_path: str, output_dir: str | None, dry_run
                 dry_run=dry_run,
             ),
             email_sender_cls=ExpectedEventDispatcher,
-            kafka_service_cls=ObservedEventReader,
+            kafka_service_cls=ActualEventReader,
             smtp_client_factory=SynchronousSMTPClient,
         )
     except RunExecutionError as exc:

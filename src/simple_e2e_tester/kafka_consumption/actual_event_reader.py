@@ -7,13 +7,13 @@ import logging
 import struct
 from collections.abc import Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from confluent_kafka import Consumer, KafkaError
 from simple_e2e_tester.configuration.runtime_settings import KafkaSettings, SchemaConfig
 from simple_e2e_tester.schema_management.schema_models import FlattenedField
 
-from .observed_event_messages import ObservedEventMessage
+from .actual_event_messages import ActualEventMessage
 
 _KAFKA_CLIENT_LOGGER = logging.getLogger("simple_e2e_tester.kafka.client")
 _KAFKA_CLIENT_LOGGER.addHandler(logging.NullHandler())
@@ -21,14 +21,20 @@ _KAFKA_CLIENT_LOGGER.propagate = False
 _KAFKA_CLIENT_LOGGER.setLevel(logging.CRITICAL + 1)
 
 
-class ObservedEventDecodeError(Exception):
+class ActualEventDecodeError(Exception):
     """Raised when a Kafka message cannot be decoded according to the schema."""
 
 
 class KafkaConsumerProtocol(Protocol):
     """Protocol implemented by both real and fake consumers."""
 
-    def subscribe(self, topics: list[str], **kwargs: Any) -> None: ...
+    def subscribe(
+        self,
+        topics: list[str],
+        on_assign: Any = None,
+        on_revoke: Any = None,
+        on_lost: Any = None,
+    ) -> None: ...
 
     def poll(self, timeout: float) -> _KafkaRawMessage | None: ...
 
@@ -47,7 +53,7 @@ class _KafkaRawMessage(Protocol):
     def timestamp(self) -> tuple[int, int | None]: ...
 
 
-class ObservedEventReader:
+class ActualEventReader:
     """Service that consumes Kafka messages from a topic and yields flattened payloads."""
 
     def __init__(
@@ -66,7 +72,7 @@ class ObservedEventReader:
         if self._schema_config.schema_type == "avsc":
             self._avro_schema = self._load_avro_schema(self._schema_config.text)
 
-    def consume_from(self, start_time: datetime) -> Iterator[ObservedEventMessage]:
+    def consume_from(self, start_time: datetime) -> Iterator[ActualEventMessage]:
         """Yield Kafka messages whose timestamps are >= start_time."""
         self._consumer.subscribe([self._settings.topic])
         end_time = start_time + timedelta(seconds=self._settings.timeout_seconds)
@@ -76,9 +82,13 @@ class ObservedEventReader:
                 if message is None:
                     continue
                 if message.error():
-                    if message.error().code() == KafkaError._PARTITION_EOF:
+                    partition_eof_code = getattr(KafkaError, "_PARTITION_EOF", None)
+                    if (
+                        partition_eof_code is not None
+                        and message.error().code() == partition_eof_code
+                    ):
                         continue
-                    raise ObservedEventDecodeError(f"Kafka error: {message.error()}")
+                    raise ActualEventDecodeError(f"Kafka error: {message.error()}")
                 timestamp_type, timestamp_value = message.timestamp()
                 if timestamp_value is None:
                     continue
@@ -87,7 +97,7 @@ class ObservedEventReader:
                     continue
                 decoded_value = self._decode_message(message)
                 flattened = self._flatten(decoded_value)
-                yield ObservedEventMessage(
+                yield ActualEventMessage(
                     key=self._decode_key(message.key()),
                     value=decoded_value,
                     timestamp=message_time,
@@ -99,27 +109,41 @@ class ObservedEventReader:
     def _decode_message(self, message: _KafkaRawMessage) -> Mapping[str, Any]:
         payload = message.value()
         if payload is None:
-            raise ObservedEventDecodeError("Received empty message payload.")
+            raise ActualEventDecodeError("Received empty message payload.")
         payload_bytes = bytes(payload)
 
         if self._schema_config.schema_type == "avsc":
             decoded = self._decode_avro_payload(payload_bytes)
         elif self._schema_config.schema_type == "json_schema":
-            raise ObservedEventDecodeError(
-                "Kafka decoding for json_schema is not supported in run mode. "
-                "Use an avsc schema in the config."
-            )
+            decoded = self._decode_json_payload(payload_bytes)
         else:
-            raise ObservedEventDecodeError(
+            raise ActualEventDecodeError(
                 f"Unsupported schema type for Kafka decoding: {self._schema_config.schema_type}"
             )
         if not isinstance(decoded, Mapping):
-            raise ObservedEventDecodeError("Decoded payload must be an object.")
+            raise ActualEventDecodeError("Decoded payload must be an object.")
         return decoded
+
+    def _decode_json_payload(self, payload: bytes) -> Mapping[str, Any]:
+        for candidate_payload in _json_payload_candidates(payload):
+            try:
+                raw_json = candidate_payload.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            try:
+                decoded = json.loads(raw_json)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(decoded, Mapping):
+                raise ActualEventDecodeError("Decoded JSON payload root must be an object.")
+            return decoded
+        raise ActualEventDecodeError(
+            "JSON payload decoding failed. Expected UTF-8 encoded JSON object payload."
+        )
 
     def _decode_avro_payload(self, payload: bytes) -> Mapping[str, Any]:
         if self._avro_schema is None:
-            raise ObservedEventDecodeError("AVSC schema is not initialized.")
+            raise ActualEventDecodeError("AVSC schema is not initialized.")
         # Support Confluent Schema Registry wire format:
         # magic byte 0 + 4-byte schema id + avro binary payload.
         if len(payload) >= 5 and payload[0] == 0:
@@ -127,23 +151,23 @@ class ObservedEventReader:
         reader = _AvroBinaryReader(payload)
         decoded = self._decode_avro_node(self._avro_schema, reader)
         if reader.remaining > 0:
-            raise ObservedEventDecodeError("Avro payload contains trailing bytes.")
+            raise ActualEventDecodeError("Avro payload contains trailing bytes.")
         if not isinstance(decoded, Mapping):
-            raise ObservedEventDecodeError("Decoded Avro root must be a record object.")
+            raise ActualEventDecodeError("Decoded Avro root must be a record object.")
         return decoded
 
     def _decode_avro_node(self, schema: Any, reader: _AvroBinaryReader) -> Any:
         if isinstance(schema, list):
             index = reader.read_long()
             if index < 0 or index >= len(schema):
-                raise ObservedEventDecodeError(f"Avro union index out of range: {index}")
+                raise ActualEventDecodeError(f"Avro union index out of range: {index}")
             return self._decode_avro_node(schema[index], reader)
 
         if isinstance(schema, str):
             return self._decode_avro_type(schema, None, reader)
 
         if not isinstance(schema, Mapping):
-            raise ObservedEventDecodeError("Invalid AVSC node encountered during decode.")
+            raise ActualEventDecodeError("Invalid AVSC node encountered during decode.")
 
         node_type = schema.get("type")
         if isinstance(node_type, list):
@@ -153,7 +177,7 @@ class ObservedEventReader:
         if isinstance(node_type, str):
             return self._decode_avro_type(node_type, schema, reader)
 
-        raise ObservedEventDecodeError("AVSC node is missing a valid 'type'.")
+        raise ActualEventDecodeError("AVSC node is missing a valid 'type'.")
 
     def _decode_avro_type(
         self,
@@ -178,14 +202,14 @@ class ObservedEventReader:
 
         if type_name == "record":
             if schema_node is None:
-                raise ObservedEventDecodeError("Record definition is missing from AVSC schema.")
+                raise ActualEventDecodeError("Record definition is missing from AVSC schema.")
             fields = schema_node.get("fields")
             if not isinstance(fields, Sequence):
-                raise ObservedEventDecodeError("Record schema requires a fields array.")
+                raise ActualEventDecodeError("Record schema requires a fields array.")
             record_output: dict[str, Any] = {}
             for field in fields:
                 if not isinstance(field, Mapping) or "name" not in field:
-                    raise ObservedEventDecodeError("Record field definition is invalid.")
+                    raise ActualEventDecodeError("Record field definition is invalid.")
                 record_output[str(field["name"])] = self._decode_avro_node(
                     field.get("type"), reader
                 )
@@ -193,18 +217,18 @@ class ObservedEventReader:
 
         if type_name == "enum":
             if schema_node is None:
-                raise ObservedEventDecodeError("Enum definition is missing from AVSC schema.")
+                raise ActualEventDecodeError("Enum definition is missing from AVSC schema.")
             symbols = schema_node.get("symbols")
             if not isinstance(symbols, Sequence):
-                raise ObservedEventDecodeError("Enum schema requires a symbols array.")
+                raise ActualEventDecodeError("Enum schema requires a symbols array.")
             index = reader.read_long()
             if index < 0 or index >= len(symbols):
-                raise ObservedEventDecodeError(f"Avro enum index out of range: {index}")
+                raise ActualEventDecodeError(f"Avro enum index out of range: {index}")
             return symbols[index]
 
         if type_name == "array":
             if schema_node is None:
-                raise ObservedEventDecodeError("Array definition is missing from AVSC schema.")
+                raise ActualEventDecodeError("Array definition is missing from AVSC schema.")
             items_schema = schema_node.get("items")
             items: list[Any] = []
             while True:
@@ -220,7 +244,7 @@ class ObservedEventReader:
 
         if type_name == "map":
             if schema_node is None:
-                raise ObservedEventDecodeError("Map definition is missing from AVSC schema.")
+                raise ActualEventDecodeError("Map definition is missing from AVSC schema.")
             values_schema = schema_node.get("values")
             map_output: dict[str, Any] = {}
             while True:
@@ -237,28 +261,24 @@ class ObservedEventReader:
 
         if type_name == "fixed":
             if schema_node is None:
-                raise ObservedEventDecodeError("Fixed definition is missing from AVSC schema.")
+                raise ActualEventDecodeError("Fixed definition is missing from AVSC schema.")
             size = schema_node.get("size")
             if not isinstance(size, int) or size < 0:
-                raise ObservedEventDecodeError(
-                    "Fixed schema requires a non-negative integer size."
-                )
+                raise ActualEventDecodeError("Fixed schema requires a non-negative integer size.")
             return reader.read_exact(size)
 
         named_type = self._named_types.get(type_name)
         if named_type is None:
-            raise ObservedEventDecodeError(
-                f"Unsupported or unknown Avro type reference: {type_name}"
-            )
+            raise ActualEventDecodeError(f"Unsupported or unknown Avro type reference: {type_name}")
         return self._decode_avro_node(named_type, reader)
 
     def _load_avro_schema(self, schema_text: str) -> Mapping[str, Any]:
         try:
             root = json.loads(schema_text)
         except json.JSONDecodeError as exc:
-            raise ObservedEventDecodeError(f"Invalid avsc schema JSON: {exc}") from exc
+            raise ActualEventDecodeError(f"Invalid avsc schema JSON: {exc}") from exc
         if not isinstance(root, Mapping):
-            raise ObservedEventDecodeError("AVSC schema root must be a JSON object.")
+            raise ActualEventDecodeError("AVSC schema root must be a JSON object.")
         self._named_types.clear()
         self._register_named_types(root)
         return root
@@ -310,7 +330,7 @@ class ObservedEventReader:
                     else:
                         raise KeyError(part)
             except KeyError as exc:
-                raise ObservedEventDecodeError(f"Missing schema field {field.path}") from exc
+                raise ActualEventDecodeError(f"Missing schema field {field.path}") from exc
             flattened[field.path] = value
         return flattened
 
@@ -324,18 +344,31 @@ class ObservedEventReader:
             return None
 
     def _create_consumer(self) -> KafkaConsumerProtocol:
-        config = {
+        config: dict[str, str | int | float | bool | None] = {
             "bootstrap.servers": ",".join(self._settings.bootstrap_servers),
             "group.id": self._settings.group_id or "simple-e2e-tester",
             "enable.auto.commit": False,
             "auto.offset.reset": self._settings.auto_offset_reset,
         }
-        config.update(self._settings.security)
+        for key, value in self._settings.security.items():
+            if isinstance(value, str | int | float | bool) or value is None:
+                config[key] = value
         try:
-            return Consumer(config, logger=_KAFKA_CLIENT_LOGGER)
+            return cast(
+                KafkaConsumerProtocol,
+                Consumer(config, logger=_KAFKA_CLIENT_LOGGER),  # type: ignore[call-arg]
+            )
         except TypeError:
             # Older/mock Consumer implementations may not support the logger kwarg.
-            return Consumer(config)
+            return cast(KafkaConsumerProtocol, Consumer(config))
+
+
+def _json_payload_candidates(payload: bytes) -> tuple[bytes, ...]:
+    candidates: list[bytes] = [payload]
+    if len(payload) >= 5 and payload[0] == 0:
+        # Confluent wire format: magic byte + 4-byte schema id + serialized payload.
+        candidates.append(payload[5:])
+    return tuple(candidates)
 
 
 class _AvroBinaryReader:
@@ -351,12 +384,12 @@ class _AvroBinaryReader:
         return len(self._data) - self._offset
 
     def read_exact(self, size: int) -> bytes:
-        """Read exactly `size` bytes or raise ObservedEventDecodeError."""
+        """Read exactly `size` bytes or raise ActualEventDecodeError."""
         if size < 0:
-            raise ObservedEventDecodeError("Negative read size is invalid.")
+            raise ActualEventDecodeError("Negative read size is invalid.")
         end = self._offset + size
         if end > len(self._data):
-            raise ObservedEventDecodeError("Unexpected end of Avro payload.")
+            raise ActualEventDecodeError("Unexpected end of Avro payload.")
         chunk = self._data[self._offset : end]
         self._offset = end
         return chunk
@@ -377,7 +410,7 @@ class _AvroBinaryReader:
         """Read Avro bytes."""
         length = self.read_long()
         if length < 0:
-            raise ObservedEventDecodeError("Negative bytes length in Avro payload.")
+            raise ActualEventDecodeError("Negative bytes length in Avro payload.")
         return self.read_exact(length)
 
     def read_string(self) -> str:
@@ -386,7 +419,7 @@ class _AvroBinaryReader:
         try:
             return raw.decode("utf-8")
         except UnicodeDecodeError as exc:
-            raise ObservedEventDecodeError("Invalid UTF-8 string in Avro payload.") from exc
+            raise ActualEventDecodeError("Invalid UTF-8 string in Avro payload.") from exc
 
     def read_long(self) -> int:
         """Read Avro zigzag-encoded long."""
@@ -399,5 +432,5 @@ class _AvroBinaryReader:
                 break
             shift += 7
             if shift > 63:
-                raise ObservedEventDecodeError("Avro varint is too long.")
+                raise ActualEventDecodeError("Avro varint is too long.")
         return (raw_value >> 1) ^ -(raw_value & 1)

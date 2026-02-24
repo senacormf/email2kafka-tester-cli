@@ -59,7 +59,7 @@ kafka:
     assert configuration.smtp.use_starttls is True
     assert configuration.smtp.use_ssl is False
     assert configuration.smtp.timeout_seconds == 30
-    assert configuration.smtp.parallelism == 8
+    assert configuration.smtp.parallelism == 4
     assert configuration.kafka.timeout_seconds == 600
     assert configuration.kafka.poll_interval_ms == 500
     assert configuration.kafka.auto_offset_reset == "latest"

@@ -5,11 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from simple_e2e_tester.configuration.runtime_settings import MatchingConfig
-from simple_e2e_tester.kafka_consumption.observed_event_messages import ObservedEventMessage
+from simple_e2e_tester.kafka_consumption.actual_event_messages import ActualEventMessage
 from simple_e2e_tester.matching_validation.case_evaluator import match_and_validate
 from simple_e2e_tester.matching_validation.event_boundary_mappers import (
+    to_actual_events,
     to_expected_events,
-    to_observed_events,
 )
 from simple_e2e_tester.schema_management.schema_models import FlattenedField
 from simple_e2e_tester.template_ingestion.testcase_models import TemplateTestCase
@@ -37,8 +37,8 @@ def _testcase(
     )
 
 
-def _message(flattened: dict[str, object]) -> ObservedEventMessage:
-    return ObservedEventMessage(
+def _message(flattened: dict[str, object]) -> ActualEventMessage:
+    return ActualEventMessage(
         key=None,
         value=flattened,
         timestamp=datetime.now(UTC),
@@ -56,12 +56,12 @@ def _fields(*entries: tuple[str, object]) -> list[FlattenedField]:
 
 def _evaluate(
     testcases: list[TemplateTestCase],
-    messages: list[ObservedEventMessage],
+    messages: list[ActualEventMessage],
     schema_fields: list[FlattenedField],
 ):
     return match_and_validate(
         to_expected_events(testcases),
-        to_observed_events(messages),
+        to_actual_events(messages),
         _matching_config(),
         schema_fields,
     )
@@ -82,7 +82,7 @@ def test_matches_unique_sender_candidate() -> None:
     assert result.matches[0].expected_event.expected_event_id == "TC-1"
     assert result.matches[0].mismatches == ()
     assert result.conflicts == ()
-    assert result.unmatched_observed_events == ()
+    assert result.unmatched_actual_events == ()
     assert result.unmatched_expected_event_ids == ()
 
 
@@ -114,11 +114,11 @@ def test_records_conflict_when_sender_candidates_do_not_resolve() -> None:
     assert result.matches == ()
     assert len(result.conflicts) == 1
     assert result.conflicts[0].candidate_expected_event_ids == ("TC-1", "TC-2")
-    assert result.unmatched_observed_events == ()
+    assert result.unmatched_actual_events == ()
     assert result.unmatched_expected_event_ids == ("TC-1", "TC-2")
 
 
-def test_keeps_unmatched_observed_events() -> None:
+def test_keeps_unmatched_actual_events() -> None:
     testcases = [_testcase(test_id="TC-1")]
     messages = [_message({"sender": "other@example.com", "subject": "Subject"})]
     schema_fields = _fields(("sender", {"type": "string"}), ("subject", {"type": "string"}))
@@ -127,7 +127,7 @@ def test_keeps_unmatched_observed_events() -> None:
 
     assert result.matches == ()
     assert result.conflicts == ()
-    assert len(result.unmatched_observed_events) == 1
+    assert len(result.unmatched_actual_events) == 1
     assert result.unmatched_expected_event_ids == ("TC-1",)
 
 

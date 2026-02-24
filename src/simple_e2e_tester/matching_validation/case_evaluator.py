@@ -14,11 +14,11 @@ from simple_e2e_tester.schema_management.schema_models import FlattenedField
 
 from .expectation_rules import ExpectationRuleKind, parse_expectation_rule
 from .matching_outcomes import (
+    ActualEvent,
     ExpectedEvent,
     FieldMismatch,
     MatchingConflict,
     MatchValidationResult,
-    ObservedEvent,
     ValidatedMatch,
 )
 
@@ -36,7 +36,7 @@ class _FieldKind(str, Enum):
 
 @dataclass(frozen=True)
 class _MatchingContext:
-    """Read-only context needed while processing each observed event."""
+    """Read-only context needed while processing each actual event."""
 
     from_field: str
     subject_field: str
@@ -50,17 +50,17 @@ class _MatchingState:
 
     matches: list[ValidatedMatch]
     conflicts: list[MatchingConflict]
-    unmatched_observed_events: list[ObservedEvent]
+    unmatched_actual_events: list[ActualEvent]
     matched_expected_event_ids: set[str]
 
 
 def match_and_validate(
     expected_events: Sequence[ExpectedEvent],
-    observed_events: Sequence[ObservedEvent],
+    actual_events: Sequence[ActualEvent],
     matching_config: MatchingConfig,
     schema_fields: Sequence[FlattenedField],
 ) -> MatchValidationResult:
-    """Match observed events to expected events and validate expected field values."""
+    """Match actual events to expected events and validate expected field values."""
     enabled_expected_events = [event for event in expected_events if event.enabled]
     context = _MatchingContext(
         from_field=matching_config.from_field,
@@ -71,12 +71,12 @@ def match_and_validate(
     state = _MatchingState(
         matches=[],
         conflicts=[],
-        unmatched_observed_events=[],
+        unmatched_actual_events=[],
         matched_expected_event_ids=set(),
     )
 
-    for observed_event in observed_events:
-        _process_observed_event(observed_event=observed_event, context=context, state=state)
+    for actual_event in actual_events:
+        _process_actual_event(actual_event=actual_event, context=context, state=state)
 
     unmatched_expected_event_ids = tuple(
         event.expected_event_id
@@ -87,28 +87,28 @@ def match_and_validate(
     return MatchValidationResult(
         matches=tuple(state.matches),
         conflicts=tuple(state.conflicts),
-        unmatched_observed_events=tuple(state.unmatched_observed_events),
+        unmatched_actual_events=tuple(state.unmatched_actual_events),
         unmatched_expected_event_ids=unmatched_expected_event_ids,
     )
 
 
-def _process_observed_event(
+def _process_actual_event(
     *,
-    observed_event: ObservedEvent,
+    actual_event: ActualEvent,
     context: _MatchingContext,
     state: _MatchingState,
 ) -> None:
     sender_candidates = context.expected_events_by_sender.get(
-        _normalize_sender(observed_event.flattened.get(context.from_field)),
+        _normalize_sender(actual_event.flattened.get(context.from_field)),
         [],
     )
     if not sender_candidates:
-        state.unmatched_observed_events.append(observed_event)
+        state.unmatched_actual_events.append(actual_event)
         return
 
     selected = _select_expected_event(
         sender_candidates,
-        observed_event,
+        actual_event,
         context.subject_field,
     )
     if selected is None:
@@ -117,7 +117,7 @@ def _process_observed_event(
         )
         state.conflicts.append(
             MatchingConflict(
-                observed_event=observed_event,
+                actual_event=actual_event,
                 candidate_expected_event_ids=candidate_ids,
             )
         )
@@ -125,13 +125,13 @@ def _process_observed_event(
 
     mismatches = _validate_expected_values(
         selected.expected_values,
-        observed_event.flattened,
+        actual_event.flattened,
         context.field_kinds,
     )
     state.matches.append(
         ValidatedMatch(
             expected_event=selected,
-            observed_event=observed_event,
+            actual_event=actual_event,
             mismatches=tuple(mismatches),
         )
     )
@@ -140,12 +140,12 @@ def _process_observed_event(
 
 def _select_expected_event(
     sender_candidates: Sequence[ExpectedEvent],
-    observed_event: ObservedEvent,
+    actual_event: ActualEvent,
     subject_field: str,
 ) -> ExpectedEvent | None:
     if len(sender_candidates) == 1:
         return sender_candidates[0]
-    return _disambiguate_by_subject(sender_candidates, observed_event, subject_field)
+    return _disambiguate_by_subject(sender_candidates, actual_event, subject_field)
 
 
 def _group_expected_events_by_sender(
@@ -159,14 +159,14 @@ def _group_expected_events_by_sender(
 
 def _disambiguate_by_subject(
     candidates: Sequence[ExpectedEvent],
-    observed_event: ObservedEvent,
+    actual_event: ActualEvent,
     subject_field: str,
 ) -> ExpectedEvent | None:
-    observed_subject = _normalize_subject(observed_event.flattened.get(subject_field))
+    actual_subject = _normalize_subject(actual_event.flattened.get(subject_field))
     subject_matches = [
         candidate
         for candidate in candidates
-        if _normalize_subject(candidate.subject) == observed_subject
+        if _normalize_subject(candidate.subject) == actual_subject
     ]
     if len(subject_matches) == 1:
         return subject_matches[0]

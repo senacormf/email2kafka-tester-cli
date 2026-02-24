@@ -18,8 +18,8 @@ class ExpectedEvent:
 
 
 @dataclass(frozen=True)
-class ObservedEvent:
-    """Observed event derived from Kafka message payload data."""
+class ActualEvent:
+    """Actual event derived from Kafka message payload data."""
 
     flattened: Mapping[str, object]
 
@@ -35,10 +35,10 @@ class FieldMismatch:
 
 @dataclass(frozen=True)
 class ValidatedMatch:
-    """Represents one observed event evaluated against one expected event."""
+    """Represents one actual event evaluated against one expected event."""
 
     expected_event: ExpectedEvent
-    observed_event: ObservedEvent
+    actual_event: ActualEvent
     mismatches: tuple[FieldMismatch, ...]
 
     @property
@@ -49,17 +49,17 @@ class ValidatedMatch:
 
 @dataclass(frozen=True)
 class MatchingConflict:
-    """Observed event could not be resolved to exactly one expected event."""
+    """Actual event could not be resolved to exactly one expected event."""
 
-    observed_event: ObservedEvent
+    actual_event: ActualEvent
     candidate_expected_event_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class MatchValidationResult:
-    """Outcome of matching and validation over a batch of observed events."""
+    """Outcome of matching and validation over a batch of actual events."""
 
     matches: tuple[ValidatedMatch, ...]
     conflicts: tuple[MatchingConflict, ...]
-    unmatched_observed_events: tuple[ObservedEvent, ...]
+    unmatched_actual_events: tuple[ActualEvent, ...]
     unmatched_expected_event_ids: tuple[str, ...]

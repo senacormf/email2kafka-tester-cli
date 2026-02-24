@@ -12,7 +12,7 @@ from click.testing import CliRunner
 from openpyxl import load_workbook
 from simple_e2e_tester.cli import cli
 from simple_e2e_tester.configuration.runtime_settings import KafkaSettings
-from simple_e2e_tester.kafka_consumption.observed_event_messages import ObservedEventMessage
+from simple_e2e_tester.kafka_consumption.actual_event_messages import ActualEventMessage
 from simple_e2e_tester.template_generation import TEMPLATE_SHEET_NAME
 
 
@@ -109,7 +109,7 @@ class _FakeKafkaService:
         }
         return iter(
             [
-                ObservedEventMessage(
+                ActualEventMessage(
                     key=None,
                     value=flattened,
                     timestamp=datetime.now(UTC),
@@ -155,7 +155,7 @@ def test_run_smoke_mocks_smtp_and_kafka_and_validates_requests_and_results(
         "simple_e2e_tester.email_sending.email_dispatch.smtplib.SMTP",
         _FakeSmtpSession,
     )
-    monkeypatch.setattr("simple_e2e_tester.cli.ObservedEventReader", _FakeKafkaService)
+    monkeypatch.setattr("simple_e2e_tester.cli.ActualEventReader", _FakeKafkaService)
 
     run_result = runner.invoke(
         cli,
