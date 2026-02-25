@@ -57,8 +57,8 @@ def generate_config(output_path: str) -> None:
     click.echo(str(resolved_output))
 
 
-@cli.command(name="bootstrap")
-def bootstrap() -> None:
+@cli.command(name="init")
+def init() -> None:
     """Prepare local virtual environment and install project dependencies."""
     repo_root = Path(__file__).resolve().parents[2]
     try:

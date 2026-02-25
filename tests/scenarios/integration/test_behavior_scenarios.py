@@ -283,7 +283,7 @@ kafka:
     assert configuration.smtp.parallelism == 4
 
 
-def test_given_project_bootstrap_when_command_runs_then_local_venv_is_prepared(
+def test_given_project_init_when_command_runs_then_local_venv_is_prepared(
     monkeypatch,
 ) -> None:
     runner = CliRunner()
@@ -294,7 +294,7 @@ def test_given_project_bootstrap_when_command_runs_then_local_venv_is_prepared(
 
     monkeypatch.setattr("simple_e2e_tester.cli.bootstrap_project_environment", _fake_bootstrap)
 
-    result = runner.invoke(cli, ["bootstrap"])
+    result = runner.invoke(cli, ["init"])
 
     assert result.exit_code == 0
     assert "local virtual environment ready" in result.output
@@ -313,7 +313,8 @@ def test_given_synced_project_when_running_python_e2k_launcher_then_help_lists_c
     )
 
     assert result.returncode == 0
-    assert "bootstrap" in result.stdout
+    assert "init" in result.stdout
+    assert "bootstrap" not in result.stdout
     assert "generate-config" in result.stdout
     assert "generate-template" in result.stdout
     assert "run" in result.stdout
@@ -334,7 +335,8 @@ def test_given_python3_when_running_launcher_then_help_lists_commands() -> None:
     )
 
     assert result.returncode == 0
-    assert "bootstrap" in result.stdout
+    assert "init" in result.stdout
+    assert "bootstrap" not in result.stdout
     assert "generate-config" in result.stdout
     assert "generate-template" in result.stdout
     assert "run" in result.stdout

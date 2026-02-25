@@ -39,7 +39,7 @@ def _run_cli_in_process(argv: list[str]) -> int:
     return main(argv)
 
 
-def _run_bootstrap(repo_root: Path) -> int:
+def _run_init(repo_root: Path) -> int:
     _ensure_src_on_path()
     from simple_e2e_tester.bootstrap import (  # pylint: disable=import-outside-toplevel
         BootstrapError,
@@ -58,8 +58,8 @@ def _run_bootstrap(repo_root: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     repo_root = _repo_root()
     args = list(sys.argv[1:] if argv is None else argv)
-    if args and args[0] == "bootstrap":
-        return _run_bootstrap(repo_root)
+    if args and args[0] == "init":
+        return _run_init(repo_root)
     try:
         return _run_cli_in_process(args)
     except ModuleNotFoundError as exc:

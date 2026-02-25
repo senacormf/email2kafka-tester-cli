@@ -2,10 +2,10 @@
 
 ## Commands
 
-## `bootstrap`
+## `init`
 
 ```bash
-python e2k-tester bootstrap
+python e2k-tester init
 ```
 
 Behavior:
